@@ -251,91 +251,108 @@ public class DroneWatchActivity extends Activity implements TextureView.SurfaceT
         double lat = s.getAircraftLocation().getLatitude();
         double lng = s.getAircraftLocation().getLongitude();
 
-        String getUrl = FIRESTORE_BASE_URL + "/emergencies/" + mEmergencyId;
-        Request getReq = new Request.Builder()
-            .url(getUrl)
-            .get()
-            .addHeader("Authorization", "Bearer " + mAuthToken)
-            .build();
-
-        mOkHttpClient.newCall(getReq).enqueue(new Callback() {
-            @Override public void onFailure(Call c, IOException e) {
-                showToast("Fetch emergency failed");
+        try {
+            // Create a finding document directly in the findings collection
+            JSONObject findingData = new JSONObject();
+            
+            // Core finding data fields
+            findingData.put("emergencyId", new JSONObject().put("stringValue", mEmergencyId));
+            findingData.put("description", new JSONObject().put("stringValue", "Drone photo from Android"));
+            findingData.put("operatorId", new JSONObject().put("stringValue", mUserId));
+            
+            // Location data (matching the new structure)
+            JSONObject locationObj = new JSONObject();
+            locationObj.put("latitude", new JSONObject().put("doubleValue", lat));
+            locationObj.put("longitude", new JSONObject().put("doubleValue", lng));
+            findingData.put("location", new JSONObject().put("mapValue", 
+                new JSONObject().put("fields", locationObj)));
+            
+            // Image (if available)
+            if (imageBase64 != null && !imageBase64.isEmpty()) {
+                findingData.put("imageBase64", new JSONObject().put("stringValue", imageBase64));
             }
-            @Override public void onResponse(Call c, Response r) throws IOException {
-                if (!r.isSuccessful()) {
-                    showToast("Fetch emergency err " + r.code()); r.close(); return;
+            
+            // Timestamp (current time in ISO format)
+            findingData.put("timestamp", new JSONObject().put("timestampValue", 
+                new Date().toInstant().toString()));
+            
+            // URL for creating a finding document
+            String url = FIRESTORE_BASE_URL + "/findings";
+            
+            // Create the request with all the fields
+            JSONObject requestBody = new JSONObject();
+            requestBody.put("fields", findingData);
+            
+            Request req = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(requestBody.toString(), JSON))
+                .addHeader("Authorization", "Bearer " + mAuthToken)
+                .build();
+            
+            mOkHttpClient.newCall(req).enqueue(new Callback() {
+                @Override public void onFailure(Call c, IOException e) {
+                    showToast("Add finding failed");
+                    Log.e(TAG, "Failed to add finding", e);
                 }
-                try {
-                    JSONObject doc = new JSONObject(r.body().string());
-                    r.close();
-
-                    JSONObject fields = doc.getJSONObject("fields");
-                    JSONArray existing = new JSONArray();
-                    if (fields.has("findings") &&
-                        fields.getJSONObject("findings").has("arrayValue")) {
-                        existing = fields.getJSONObject("findings")
-                            .getJSONObject("arrayValue")
-                            .optJSONArray("values");
-                        if (existing == null) existing = new JSONArray();
+                
+                @Override public void onResponse(Call c, Response r) throws IOException {
+                    if (r.isSuccessful()) {
+                        showToast("Finding reported");
+                        
+                        // After successful finding creation, update the emergency's updatedAt field
+                        updateEmergencyTimestamp(mEmergencyId);
+                    } else {
+                        showToast("Finding error " + r.code());
+                        Log.e(TAG, "Error response: " + r.body().string());
                     }
-
-                    JSONObject f = new JSONObject();
-                    f.put("id", new JSONObject().put("stringValue", String.valueOf(System.currentTimeMillis())));
-                    f.put("description", new JSONObject().put("stringValue", "Drone photo from Android"));
-                    f.put("imageBase64", new JSONObject().put("stringValue", imageBase64));
-                    JSONObject locFields = new JSONObject()
-                        .put("latitude", new JSONObject().put("doubleValue", lat))
-                        .put("longitude", new JSONObject().put("doubleValue", lng));
-                    f.put("location", new JSONObject()
-                        .put("mapValue", new JSONObject().put("fields", locFields)));
-                    f.put("operatorId", new JSONObject().put("stringValue", mUserId));
-                    f.put("timestamp", new JSONObject().put("stringValue",
-                        new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
-                            .format(new Date())
-                    ));
-
-                    existing.put(new JSONObject().put("mapValue",
-                        new JSONObject().put("fields", f)));
-
-                    JSONObject upd = new JSONObject();
-                    upd.put("findings", new JSONObject()
-                        .put("arrayValue", new JSONObject().put("values", existing)));
-                    upd.put("updatedAt", new JSONObject()
-                        .put("timestampValue", new Date().toInstant().toString()));
-
-                    String patchUrl = FIRESTORE_BASE_URL
-                        + "/emergencies/" + mEmergencyId
-                        + "?updateMask.fieldPaths=findings"
-                        + "&updateMask.fieldPaths=updatedAt";
-
-                    Request patch = new Request.Builder()
-                        .url(patchUrl)
-                        .patch(RequestBody.create(new JSONObject().put("fields", upd).toString(), JSON))
-                        .addHeader("Authorization", "Bearer " + mAuthToken)
-                        .build();
-
-                    mOkHttpClient.newCall(patch).enqueue(new Callback() {
-                        @Override public void onFailure(Call c, IOException e) {
-                            showToast("Add finding failed");
-                        }
-                        @Override public void onResponse(Call c, Response rr) throws IOException {
-                            if (rr.isSuccessful()) showToast("Finding reported");
-                            else showToast("Finding err " + rr.code());
-                            rr.close();
-                        }
-                    });
-                } catch (JSONException ex) {
-                    showToast("JSON parse err");
+                    r.close();
                 }
-            }
-        });
+            });
+        } catch (JSONException ex) {
+            showToast("JSON parse err");
+            Log.e(TAG, "JSON error in creating finding", ex);
+        }
     }
-
     private void showToast(final String msg) {
         runOnUiThread(() -> Toast.makeText(DroneWatchActivity.this, msg, Toast.LENGTH_SHORT).show());
     }
+    // Helper method to update the emergency's timestamp after adding a finding
+    private void updateEmergencyTimestamp(String emergencyId) {
+        try {
+            JSONObject fields = new JSONObject();
+            fields.put("updatedAt", new JSONObject()
+                .put("timestampValue", new Date().toInstant().toString())
+            );
 
+            String url = FIRESTORE_BASE_URL
+                + "/emergencies/" + emergencyId
+                + "?updateMask.fieldPaths=updatedAt";
+
+            Request req = new Request.Builder()
+                .url(url)
+                .patch(RequestBody.create(
+                    new JSONObject().put("fields", fields).toString(), JSON
+                ))
+                .addHeader("Authorization", "Bearer " + mAuthToken)
+                .build();
+
+            mOkHttpClient.newCall(req).enqueue(new Callback() {
+                @Override public void onFailure(Call c, IOException e) {
+                    Log.e(TAG, "Failed to update emergency timestamp", e);
+                }
+                
+                @Override public void onResponse(Call c, Response r) throws IOException {
+                    if (!r.isSuccessful()) {
+                        Log.e(TAG, "Error updating emergency: " + r.code());
+                    }
+                    r.close();
+                }
+            });
+        } catch (JSONException ex) {
+            Log.e(TAG, "JSON error in updateEmergencyTimestamp", ex);
+        }
+    }
+    
     @Override public void onSurfaceTextureAvailable(SurfaceTexture s, int w, int h) {
         if (mCodecManager == null) mCodecManager = new DJICodecManager(this, s, w, h);
         VideoFeeder.getInstance().getPrimaryVideoFeed().addVideoDataListener(mVideoDataListener);
