@@ -1,15 +1,15 @@
 package com.dji.sdk.sample.demo.dronewatch;
 
 import android.app.Activity;
-import android.content.Context;  // <--- add this import
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.SurfaceTexture;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import android.view.TextureView;
+import android.view.KeyEvent;
 import android.view.View;
-import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -60,8 +60,8 @@ public class DroneWatchActivity extends Activity implements TextureView.SurfaceT
 
     // UI
     private TextureView mVideoSurface;
-    private Button mCaptureBtn;
     private TextView mLocationInfoTv;
+    private View mFloatingButton;  // Round floating button
 
     // DJI
     private DJICodecManager mCodecManager;
@@ -123,17 +123,52 @@ public class DroneWatchActivity extends Activity implements TextureView.SurfaceT
         initUI();
         initSDKComponents();
         startLocationUpdates();
+        addFloatingButton(); // Add the small round button
     }
 
     private void initUI() {
         mVideoSurface   = findViewById(R.id.video_surface);
-        mCaptureBtn     = findViewById(R.id.btn_capture);
         mLocationInfoTv = findViewById(R.id.tv_location_info);
 
         if (mVideoSurface != null) {
             mVideoSurface.setSurfaceTextureListener(this);
         }
-        mCaptureBtn.setOnClickListener(v -> capturePhoto());
+    }
+
+    // Add a small, round, semi-transparent button in the bottom-right corner
+    private void addFloatingButton() {
+        View floatingButton = new View(this);
+        floatingButton.setBackground(getResources().getDrawable(android.R.drawable.ic_menu_camera));
+        floatingButton.setAlpha(0.7f);
+        
+        int buttonSize = dpToPx(60);
+        // Use FrameLayout.LayoutParams instead of RelativeLayout.LayoutParams
+        android.widget.FrameLayout.LayoutParams params = 
+            new android.widget.FrameLayout.LayoutParams(buttonSize, buttonSize);
+        
+        // Set gravity instead of rules for FrameLayout
+        params.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+        params.setMargins(0, 0, dpToPx(20), dpToPx(20));
+        
+        floatingButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showToast("Capture triggered");
+                capturePhoto();
+            }
+        });
+        
+        // Get the content frame as a FrameLayout
+        android.widget.FrameLayout rootLayout = (android.widget.FrameLayout) findViewById(android.R.id.content);
+        rootLayout.addView(floatingButton, params);
+        
+        mFloatingButton = floatingButton;
+    }
+    
+    // Utility to convert dp to pixels
+    private int dpToPx(int dp) {
+        float density = getResources().getDisplayMetrics().density;
+        return Math.round(dp * density);
     }
 
     private void initSDKComponents() {
@@ -158,15 +193,31 @@ public class DroneWatchActivity extends Activity implements TextureView.SurfaceT
         }
     }
 
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Handle volume buttons as capture triggers
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || 
+            keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || 
+            keyCode == KeyEvent.KEYCODE_CAMERA) {
+            showToast("Key capture triggered");
+            capturePhoto();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
     private void updateLocationInfo(FlightControllerState state) {
         double lat = state.getAircraftLocation().getLatitude();
         double lng = state.getAircraftLocation().getLongitude();
         float  alt = state.getAircraftLocation().getAltitude();
-        runOnUiThread(() ->
-            mLocationInfoTv.setText(String.format(
-                "Lat: %.6f\nLong: %.6f\nAlt: %.1fm", lat, lng, alt
-            ))
-        );
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                mLocationInfoTv.setText(String.format(
+                    "Lat: %.6f\nLong: %.6f\nAlt: %.1fm", lat, lng, alt
+                ));
+            }
+        });
     }
 
     private void startLocationUpdates() {
@@ -223,15 +274,19 @@ public class DroneWatchActivity extends Activity implements TextureView.SurfaceT
 
     private void capturePhoto() {
         if (mCamera == null) { ToastUtils.setResultToToast("Camera not available"); return; }
-        mCaptureBtn.setEnabled(false);
+        
         mCamera.startShootPhoto(rc -> {
             if (rc == null) {
                 showToast("Photo captured");
-                runOnUiThread(this::sendCurrentFrameAsPhoto);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        sendCurrentFrameAsPhoto();
+                    }
+                });
             } else {
                 showToast("Capture failed: " + rc.getDescription());
             }
-            runOnUiThread(() -> mCaptureBtn.setEnabled(true));
         });
     }
 
@@ -313,9 +368,16 @@ public class DroneWatchActivity extends Activity implements TextureView.SurfaceT
             Log.e(TAG, "JSON error in creating finding", ex);
         }
     }
+
     private void showToast(final String msg) {
-        runOnUiThread(() -> Toast.makeText(DroneWatchActivity.this, msg, Toast.LENGTH_SHORT).show());
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(DroneWatchActivity.this, msg, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
+
     // Helper method to update the emergency's timestamp after adding a finding
     private void updateEmergencyTimestamp(String emergencyId) {
         try {

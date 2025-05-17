@@ -9,27 +9,6 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Control Panel at the bottom -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:background="#80000000"
-        android:orientation="horizontal"
-        android:padding="16dp">
-
-        <!-- Capture Button -->
-        <Button
-            android:id="@+id/btn_capture"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@drawable/round_button"
-            android:text="Capture"
-            android:textColor="#FFFFFF" />
-
-    </LinearLayout>
-
     <!-- Location Information Panel -->
     <TextView
         android:id="@+id/tv_location_info"
@@ -41,5 +20,7 @@
         android:padding="8dp"
         android:text="Location: Waiting for GPS..."
         android:textColor="#FFFFFF" />
+
+    <!-- We're removing the LinearLayout with the capture button -->
 
 </RelativeLayout>
